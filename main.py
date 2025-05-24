@@ -1,13 +1,15 @@
 import os
 from tkinter import Tk, filedialog
 
+from mutagen._file import File as MutagenFile
 from mutagen.id3 import ID3
 from mutagen.mp3 import MP3
 
 # Constants
 COVER_ART_DIR = 'cover_art'
-MP3_EXTENSION = '.mp3'
-IMAGE_EXTENSIONS = '*.jpg *.jpeg *.png'
+AUDIO_FILE_PATTERN = '*.mp3 *.flac *.ogg *.m4a *.mp4 *.wav'
+AUDIO_EXTENTIONS = set(AUDIO_FILE_PATTERN.replace('*', '').split())
+IMAGE_FILE_PATTERN = '*.jpg *.jpeg *.png'
 
 # Ensure cover_art directory exists
 os.makedirs(COVER_ART_DIR, exist_ok=True)
@@ -17,18 +19,23 @@ Tk().withdraw()
 
 
 def copy_cover_art(file_path, silent=False):
-    """Copy and save the first APIC frame (cover art) from an MP3 file."""
+    """Copy and save the first APIC frame (cover art) from the audio file."""
+
     try:
-        audio_file = MP3(file_path, ID3=ID3)
-        if audio_file.tags is None:
+        audio_file = MutagenFile(file_path)
+        if not audio_file or not audio_file.tags:
             if not silent:
-                print(f'[SKIP] No ID3 tags in {file_path}')
+                print(f'[SKIP] No tags in "{file_path}"')
             return False
 
-        apic_frames = audio_file.tags.getall('APIC')
+        apic_frames = (
+            audio_file.tags.getall('APIC')
+            if hasattr(audio_file.tags, 'getall')
+            else []
+        )
         if not apic_frames:
             if not silent:
-                print(f'[SKIP] No cover art in {file_path}')
+                print(f'[SKIP] No cover art in "{file_path}"')
             return False
 
         cover_frame = apic_frames[0]
@@ -42,40 +49,52 @@ def copy_cover_art(file_path, silent=False):
             output_file.write(cover_frame.data)
 
         if not silent:
-            print(f'[COPY] Cover art saved to {output_path}')
+            print(f'[COPY] Cover art saved to "{output_path}"')
         return True
 
     except Exception as error_info:
-        print(f'[ERROR] Failed on {file_path}: {error_info}')
+        print(f'[ERROR] Failed on "{file_path}": {error_info}')
         return False
 
 
-def extract_cover_art(file_path):
-    """Copy and remove cover art from the MP3 file."""
-    was_copied = copy_cover_art(file_path, silent=True)
-    if not was_copied:
-        print(f'[SKIP] No cover art in {file_path}')
-        return
+def delete_cover_art(file_path):
+    """Delete the first APIC frame (cover art) from the audio file."""
 
     try:
-        audio_file = MP3(file_path, ID3=ID3)
-
-        if audio_file.tags is None:
-            print(f'[SKIP] No ID3 tags to remove from {file_path}')
+        audio_file = MutagenFile(file_path, easy=False)
+        if not audio_file or not audio_file.tags:
+            print(f'[SKIP] No tags to remove from "{file_path}"')
             return
 
-        audio_file.tags.delall('APIC')
-        audio_file.save()
-        print(f'[EXTRACT] Cover art removed from {file_path}')
+        if hasattr(audio_file.tags, 'delall'):
+            audio_file.tags.delall('APIC')
+            audio_file.save()
+            print(f'[DELETE] Cover art removed from "{file_path}"')
+        else:
+            print(
+                f'[SKIP] Tag format does not support cover deletion: '
+                f'"{file_path}"'
+            )
     except Exception as error_info:
         print(
-            f'[ERROR] Could not remove cover art from {file_path}: '
+            f'[ERROR] Could not delete cover art from "{file_path}": '
             f'{error_info}'
         )
 
 
+def extract_cover_art(file_path):
+    """Copy and remove cover art from the audio file."""
+
+    was_copied = copy_cover_art(file_path, silent=True)
+    if not was_copied:
+        print(f'[SKIP] No cover art in "{file_path}"')
+        return
+    delete_cover_art(file_path)
+
+
 def replace_cover_art(file_path, image_path):
-    """Replace any existing cover art of an MP3 file with a new one."""
+    """Replace any existing cover art of the audio file with a new one."""
+
     from mutagen.id3._frames import APIC
 
     try:
@@ -96,7 +115,7 @@ def replace_cover_art(file_path, image_path):
             APIC(
                 encoding=3,
                 mime=mime_type,
-                type=3,  # front cover
+                type=3,
                 desc='Cover',
                 data=image_data,
             )
@@ -104,33 +123,33 @@ def replace_cover_art(file_path, image_path):
 
         audio_file.save(v2_version=3)
 
-        print(f'[REPLACE] Cover art replaced in {file_path}')
+        print(f'[REPLACE] Cover art replaced in "{file_path}"')
 
     except Exception as error_info:
-        print(f'[ERROR] Failed on {file_path}: {error_info}')
+        print(f'[ERROR] Failed on "{file_path}": {error_info}')
 
 
-def select_mp3_files():
+def select_audio_files():
     return filedialog.askopenfilenames(
-        filetypes=[('MP3 Files', MP3_EXTENSION)]
+        filetypes=[('Audio Files', AUDIO_FILE_PATTERN)]
     )
 
 
-def select_mp3_directory():
+def select_audio_directory():
     return filedialog.askdirectory()
 
 
 def select_image_file():
     return filedialog.askopenfilename(
-        filetypes=[('Image Files', IMAGE_EXTENSIONS)]
+        filetypes=[('Image Files', IMAGE_FILE_PATTERN)]
     )
 
 
-def get_mp3_files_from_directory(directory_path):
+def get_audio_files_from_directory(directory_path):
     return [
         os.path.join(directory_path, entry)
         for entry in os.listdir(directory_path)
-        if entry.lower().endswith('.mp3')
+        if entry.lower().endswith(AUDIO_EXTENTIONS)
     ]
 
 
@@ -144,6 +163,7 @@ def close_application():
 def main():
     operation_options = {
         'COPY': 'c',
+        'DELETE': 'd',
         'EXTRACT': 'e',
         'REPLACE': 'r',
         'QUIT': 'q',
@@ -153,6 +173,7 @@ def main():
     print()
     print('Choose an operation:')
     print(f'[{operation_options["COPY"]}] COPY cover art')
+    print(f'[{operation_options["DELETE"]}] DELETE cover art')
     print(f'[{operation_options["EXTRACT"]}] EXTRACT cover art')
     print(f'[{operation_options["REPLACE"]}] REPLACE cover art')
 
@@ -194,10 +215,10 @@ def main():
             print('Invalid selection.')
 
     if selected_target == target_options['DIRECTORY']:
-        folder_path = select_mp3_directory()
-        selected_files = get_mp3_files_from_directory(folder_path)
+        folder_path = select_audio_directory()
+        selected_files = get_audio_files_from_directory(folder_path)
     elif selected_target == target_options['FILE']:
-        selected_files = select_mp3_files()
+        selected_files = select_audio_files()
     else:
         print('Invalid target type.')
         return
@@ -209,6 +230,9 @@ def main():
     if selected_operation == operation_options['COPY']:
         for file_path in selected_files:
             copy_cover_art(file_path)
+    elif selected_operation == operation_options['DELETE']:
+        for file_path in selected_files:
+            delete_cover_art(file_path)
     elif selected_operation == operation_options['EXTRACT']:
         for file_path in selected_files:
             extract_cover_art(file_path)
