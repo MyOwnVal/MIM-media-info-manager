@@ -186,7 +186,7 @@ def main():
     while True:
         selected_operation = (
             input(
-                f'Enter one option ({operation_options["QUIT"]} - to quit): '
+                f'Enter one option ([{operation_options["QUIT"]}] - to quit): '
             )
             .strip()
             .lower()
@@ -207,7 +207,7 @@ def main():
     while True:
         selected_target = (
             input(
-                f'Enter one option ({operation_options["QUIT"]} - to quit): '
+                f'Enter one option ([{operation_options["QUIT"]}] - to quit): '
             )
             .strip()
             .lower()
