@@ -1,14 +1,15 @@
 import os
-from tkinter import Tk, filedialog
+from tkinter import StringVar, Tk, filedialog, messagebox, ttk
 
 from mutagen._file import File as MutagenFile
 from mutagen.id3 import ID3
+from mutagen.id3._frames import APIC
 from mutagen.mp3 import MP3
 
 # Constants
 COVER_ART_DIR = 'cover_art'
 AUDIO_FILE_PATTERN = '*.mp3 *.flac *.ogg *.m4a *.mp4 *.wav'
-AUDIO_EXTENTIONS = set(AUDIO_FILE_PATTERN.replace('*', '').split())
+AUDIO_EXTENSIONS = tuple(AUDIO_FILE_PATTERN.replace('*', '').split())
 IMAGE_FILE_PATTERN = '*.jpg *.jpeg *.png'
 
 # Ensure cover_art directory exists
@@ -21,9 +22,7 @@ def copy_cover_art(file_path, silent=False):
     try:
         audio_file = MutagenFile(file_path)
         if not audio_file or not audio_file.tags:
-            if not silent:
-                print(f'[SKIP] No tags in "{file_path}"')
-            return False
+            return f'[SKIP] No tags in "{file_path}"'
 
         apic_frames = (
             audio_file.tags.getall('APIC')
@@ -31,9 +30,7 @@ def copy_cover_art(file_path, silent=False):
             else []
         )
         if not apic_frames:
-            if not silent:
-                print(f'[SKIP] No cover art in "{file_path}"')
-            return False
+            return f'[SKIP] No cover art in "{file_path}"'
 
         cover_frame = apic_frames[0]
         image_extension = cover_frame.mime.split('/')[-1]
@@ -45,13 +42,9 @@ def copy_cover_art(file_path, silent=False):
         with open(output_path, 'wb') as output_file:
             output_file.write(cover_frame.data)
 
-        if not silent:
-            print(f'[COPY] Cover art saved to "{output_path}"')
-        return True
-
+        return f'[COPY] Cover art saved to "{output_path}"'
     except Exception as error_info:
-        print(f'[ERROR] Failed on "{file_path}": {error_info}')
-        return False
+        return f'[ERROR] Failed on "{file_path}": {error_info}'
 
 
 def delete_cover_art(file_path):
@@ -60,20 +53,19 @@ def delete_cover_art(file_path):
     try:
         audio_file = MutagenFile(file_path, easy=False)
         if not audio_file or not audio_file.tags:
-            print(f'[SKIP] No tags to remove from "{file_path}"')
-            return
+            return f'[SKIP] No tags to remove from "{file_path}"'
 
         if hasattr(audio_file.tags, 'delall'):
             audio_file.tags.delall('APIC')
             audio_file.save()
-            print(f'[DELETE] Cover art removed from "{file_path}"')
+            return f'[DELETE] Cover art removed from "{file_path}"'
         else:
-            print(
+            return (
                 f'[SKIP] Tag format does not support cover deletion: '
                 f'"{file_path}"'
             )
     except Exception as error_info:
-        print(
+        return (
             f'[ERROR] Could not delete cover art from "{file_path}": '
             f'{error_info}'
         )
@@ -82,17 +74,15 @@ def delete_cover_art(file_path):
 def extract_cover_art(file_path):
     """Copy and remove cover art from the audio file."""
 
-    was_copied = copy_cover_art(file_path, silent=True)
-    if not was_copied:
-        print(f'[SKIP] No cover art in "{file_path}"')
-        return
-    delete_cover_art(file_path)
+    copy_result = copy_cover_art(file_path, silent=True)
+    if '[COPY]' in copy_result:
+        delete_result = delete_cover_art(file_path)
+        return f'{copy_result}\n{delete_result}'
+    return copy_result
 
 
 def replace_cover_art(file_path, image_path):
     """Replace any existing cover art of the audio file with a new one."""
-
-    from mutagen.id3._frames import APIC
 
     try:
         with open(image_path, 'rb') as image_file:
@@ -102,7 +92,6 @@ def replace_cover_art(file_path, image_path):
         mime_type = f'image/{image_extension}'
 
         audio_file = MP3(file_path, ID3=ID3)
-
         if audio_file.tags is None:
             audio_file.add_tags()
             assert audio_file.tags is not None
@@ -117,138 +106,125 @@ def replace_cover_art(file_path, image_path):
                 data=image_data,
             )
         )
-
         audio_file.save(v2_version=3)
 
-        print(f'[REPLACE] Cover art replaced in "{file_path}"')
-
+        return f'[REPLACE] Cover art replaced in "{file_path}"'
     except Exception as error_info:
-        print(f'[ERROR] Failed on "{file_path}": {error_info}')
-
-
-def select_audio_files():
-    Tk().withdraw()
-    file_paths = filedialog.askopenfilenames(
-        filetypes=[('Audio Files', AUDIO_FILE_PATTERN)]
-    )
-    Tk().destroy()
-    return file_paths
-
-
-def select_audio_directory():
-    Tk().withdraw()
-    dir_path = filedialog.askdirectory()
-    Tk().destroy()
-    return dir_path
-
-
-def select_image_file():
-    Tk().withdraw()
-    file_path = filedialog.askopenfilename(
-        filetypes=[('Image Files', IMAGE_FILE_PATTERN)]
-    )
-    Tk().destroy()
-    return file_path
+        return f'[ERROR] Failed on "{file_path}": {error_info}'
 
 
 def get_audio_files_from_directory(directory_path):
     return [
         os.path.join(directory_path, entry)
         for entry in os.listdir(directory_path)
-        if entry.lower().endswith(AUDIO_EXTENTIONS)
+        if entry.lower().endswith(AUDIO_EXTENSIONS)
     ]
 
 
-def close_application():
-    from sys import exit
+def run_operation(operation, audio_selection, image_path):
+    if not audio_selection:
+        messagebox.showwarning('Warning', 'Please select a file or folder.')
+        return
 
-    print('[QUIT] Application closed.')
-    exit()
+    if isinstance(audio_selection, str) and os.path.isdir(audio_selection):
+        files = get_audio_files_from_directory(audio_selection)
+    elif isinstance(audio_selection, list):
+        files = audio_selection
+    else:
+        messagebox.showerror('Error', 'Invalid selection.')
+        return
+
+    if not files:
+        messagebox.showwarning('Warning', 'No valid audio files found.')
+        return
+
+    results = []
+    for file_path in files:
+        if operation == 'COPY':
+            results.append(copy_cover_art(file_path))
+        elif operation == 'DELETE':
+            results.append(delete_cover_art(file_path))
+        elif operation == 'EXTRACT':
+            results.append(extract_cover_art(file_path))
+        elif operation == 'REPLACE':
+            if not image_path or not os.path.isfile(image_path):
+                results.append('[ERROR] Invalid image file selected.')
+                break
+            results.append(replace_cover_art(file_path, image_path))
+
+    messagebox.showinfo('Operation Summary', '\n'.join(results))
 
 
 def main():
-    operation_options = {
-        'COPY': 'c',
-        'DELETE': 'd',
-        'EXTRACT': 'e',
-        'REPLACE': 'r',
-        'QUIT': 'q',
-    }
-    target_options = {'DIRECTORY': 'd', 'FILE': 'f'}
+    root = Tk()
+    root.title('Cover Art Manager')
 
-    print()
-    print('Choose an operation:')
-    print(f'[{operation_options["COPY"]}] COPY cover art')
-    print(f'[{operation_options["DELETE"]}] DELETE cover art')
-    print(f'[{operation_options["EXTRACT"]}] EXTRACT cover art')
-    print(f'[{operation_options["REPLACE"]}] REPLACE cover art')
+    operation_var = StringVar()
+    path_display_var = StringVar()
+    image_var = StringVar()
+    audio_selection = []
 
-    while True:
-        selected_operation = (
-            input(
-                f'Enter one option ([{operation_options["QUIT"]}] - to quit): '
+    def browse_files():
+        nonlocal audio_selection
+        files = list(
+            filedialog.askopenfilenames(
+                filetypes=[('Audio Files', AUDIO_FILE_PATTERN)]
             )
-            .strip()
-            .lower()
+        )
+        audio_selection = files
+        path_display_var.set('; '.join(files))
+
+    def browse_folder():
+        nonlocal audio_selection
+        folder = filedialog.askdirectory()
+        audio_selection = folder
+        path_display_var.set(folder)
+
+    def browse_image():
+        image_var.set(
+            filedialog.askopenfilename(
+                filetypes=[('Image Files', IMAGE_FILE_PATTERN)]
+            )
         )
 
-        if selected_operation == operation_options['QUIT']:
-            close_application()
-        elif selected_operation in operation_options.values():
-            break
-        else:
-            print('Invalid selection.')
+    ttk.Label(root, text='Operation:').grid(row=0, column=0, sticky='w')
+    ttk.Combobox(
+        root,
+        textvariable=operation_var,
+        values=['COPY', 'DELETE', 'EXTRACT', 'REPLACE'],
+    ).grid(row=0, column=1)
 
-    print()
-    print('Choose target type:')
-    print(f'[{target_options["DIRECTORY"]}] Directory')
-    print(f'[{target_options["FILE"]}] File(s)')
+    ttk.Label(root, text='Selected Audio:').grid(row=1, column=0, sticky='w')
+    ttk.Entry(root, textvariable=path_display_var, width=60).grid(
+        row=1, column=1, columnspan=2
+    )
+    ttk.Button(root, text='Browse Folder', command=browse_folder).grid(
+        row=1, column=3
+    )
+    ttk.Button(root, text='Browse Files', command=browse_files).grid(
+        row=1, column=4
+    )
 
-    while True:
-        selected_target = (
-            input(
-                f'Enter one option ([{operation_options["QUIT"]}] - to quit): '
-            )
-            .strip()
-            .lower()
-        )
+    ttk.Label(root, text='Image (for REPLACE):').grid(
+        row=2, column=0, sticky='w'
+    )
+    ttk.Entry(root, textvariable=image_var, width=60).grid(
+        row=2, column=1, columnspan=2
+    )
+    ttk.Button(root, text='Browse Image', command=browse_image).grid(
+        row=2, column=3
+    )
 
-        if selected_target == operation_options['QUIT']:
-            close_application()
-        elif selected_target in target_options.values():
-            break
-        else:
-            print('Invalid selection.')
+    ttk.Button(
+        root,
+        text='Run',
+        command=lambda: run_operation(
+            operation_var.get(), audio_selection, image_var.get()
+        ),
+    ).grid(row=3, column=1)
+    ttk.Button(root, text='Exit', command=root.destroy).grid(row=3, column=2)
 
-    if selected_target == target_options['DIRECTORY']:
-        folder_path = select_audio_directory()
-        selected_files = get_audio_files_from_directory(folder_path)
-    elif selected_target == target_options['FILE']:
-        selected_files = select_audio_files()
-    else:
-        print('Invalid target type.')
-        return
-
-    if not selected_files:
-        print('No MP3 files selected.')
-        return
-
-    if selected_operation == operation_options['COPY']:
-        for file_path in selected_files:
-            copy_cover_art(file_path)
-    elif selected_operation == operation_options['DELETE']:
-        for file_path in selected_files:
-            delete_cover_art(file_path)
-    elif selected_operation == operation_options['EXTRACT']:
-        for file_path in selected_files:
-            extract_cover_art(file_path)
-    elif selected_operation == operation_options['REPLACE']:
-        image_path = select_image_file()
-        if not image_path:
-            print('No image selected.')
-            return
-        for file_path in selected_files:
-            replace_cover_art(file_path, image_path)
+    root.mainloop()
 
 
 if __name__ == '__main__':
