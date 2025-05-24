@@ -14,9 +14,6 @@ IMAGE_FILE_PATTERN = '*.jpg *.jpeg *.png'
 # Ensure cover_art directory exists
 os.makedirs(COVER_ART_DIR, exist_ok=True)
 
-# Hide Tkinter root window
-Tk().withdraw()
-
 
 def copy_cover_art(file_path, silent=False):
     """Copy and save the first APIC frame (cover art) from the audio file."""
@@ -130,19 +127,28 @@ def replace_cover_art(file_path, image_path):
 
 
 def select_audio_files():
-    return filedialog.askopenfilenames(
+    Tk().withdraw()
+    file_paths = filedialog.askopenfilenames(
         filetypes=[('Audio Files', AUDIO_FILE_PATTERN)]
     )
+    Tk().destroy()
+    return file_paths
 
 
 def select_audio_directory():
-    return filedialog.askdirectory()
+    Tk().withdraw()
+    dir_path = filedialog.askdirectory()
+    Tk().destroy()
+    return dir_path
 
 
 def select_image_file():
-    return filedialog.askopenfilename(
+    Tk().withdraw()
+    file_path = filedialog.askopenfilename(
         filetypes=[('Image Files', IMAGE_FILE_PATTERN)]
     )
+    Tk().destroy()
+    return file_path
 
 
 def get_audio_files_from_directory(directory_path):
